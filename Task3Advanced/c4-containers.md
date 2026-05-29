@@ -4,36 +4,36 @@
 
 ```mermaid
 C4Context
-  title Системный контекст «Будущее 2.0»
+    title Системный контекст «Будущее 2.0»
 
-  Person(operator, "Оператор клиники", "Работа с пациентами")
-  Person(analyst, "Бизнес-аналитик", "Отчёты и витрины")
-  Person(client, "Клиент", "Медицина + финтех")
+    Person(operator, "Оператор клиники", "Работа с пациентами")
+    Person(analyst, "Бизнес-аналитик", "Отчёты и витрины")
+    Person(client, "Клиент", "Медицина + финтех")
 
-  System_Boundary(future20, "Экосистема Будущее 2.0") {
-    System(portal, "Портал самообслуживания", "Витрина данных без PHI")
-    System(medical, "Медицинский домен", "Клиники, карты, исследования")
-    System(fintech, "Финтех-домен", "Счета, кредиты, платежи")
-    System(ai, "ИИ-домен", "Диагностика, ML")
-    System(integration, "Интеграционный слой", "События, ACL")
-  }
+    System_Boundary(future20, "Экосистема Будущее 2.0") {
+        System(portal, "Портал самообслуживания", "Витрина данных без PHI")
+        System(medical, "Медицинский домен", "Клиники, карты, исследования")
+        System(fintech, "Финтех-домен", "Счета, кредиты, платежи")
+        System(ai, "ИИ-домен", "Диагностика, ML")
+        System(integration, "Интеграционный слой", "События, ACL")
+    }
 
-  System_Ext(regulator, "Регуляторы", "152-ФЗ, банковский надзор")
-  System_Ext(pharma, "Фарма-партнёры", "Будущие интеграции")
-  System_Ext(equipment, "Производитель оборудования", "IoT/данные устройств")
+    System_Ext(regulator, "Регуляторы", "152-ФЗ, банковский надзор")
+    System_Ext(pharma, "Фарма-партнёры", "Будущие интеграции")
+    System_Ext(equipment, "Производитель оборудования", "IoT/данные устройств")
 
-  Rel(operator, medical, "Вводит мед. данные")
-  Rel(analyst, portal, "Строит отчёты")
-  Rel(client, fintech, "Финансовые сервисы")
-  Rel(client, medical, "Медицинские сервисы")
-  Rel(medical, integration, "События")
-  Rel(fintech, integration, "События")
-  Rel(ai, integration, "События")
-  Rel(integration, portal, "Аналитические витрины")
-  Rel(portal, analyst, "Данные без PHI")
-  Rel(future20, regulator, "Аудит, отчётность")
-  Rel(integration, pharma, "События заказов")
-  Rel(integration, equipment, "Телеметрия")
+    Rel(operator, medical, "Вводит мед. данные")
+    Rel(analyst, portal, "Строит отчёты")
+    Rel(client, fintech, "Финансовые сервисы")
+    Rel(client, medical, "Медицинские сервисы")
+    Rel(medical, integration, "События")
+    Rel(fintech, integration, "События")
+    Rel(ai, integration, "События")
+    Rel(integration, portal, "Аналитические витрины")
+    Rel(portal, analyst, "Данные без PHI")
+    Rel(integration, regulator, "Аудит, отчётность")
+    Rel(integration, pharma, "События заказов")
+    Rel(integration, equipment, "Телеметрия")
 ```
 
 ## Контейнеры (Level 2)
@@ -66,29 +66,38 @@ flowchart TB
     Mesh --> Lake
   end
 
-  subgraph Platform["Платформа интеграции"]
-    Bus["Event Bus\n(Kafka / Pulsar)"]
-    Schema["Schema Registry"]
-    ACL["Anti-Corruption Layer\n(legacy Camel/DWH)"]
+  subgraph Platform["Платформа вместо ESB"]
+    Bus["Event Bus\nмаршрутизация, DLQ"]
+    Schema["Schema Registry\nФЛК, контракты"]
+    Gateway["API Gateway\nсинх. маршрутизация"]
+    Stream["Stream Processing\nтрансформации"]
+    Orch["Saga\nretry, orchestration"]
+    ACL["ACL\nмост legacy → Bus"]
     Bus --> Schema
+    Stream --> Bus
+    Orch --> Bus
   end
 
-  subgraph Legacy["Мосты совместимости (миграция)"]
-    DWH[("SQL Server DWH\n(сокращается)")]
-    Camel["Apache Camel ESB"]
-    BI["Power BI → замена"]
+  subgraph Legacy["вывод к 36 мес."]
+    DWH[("SQL Server DWH")]
+    Camel["Camel ESB\nHOLD"]
+    BI["Power BI\nHOLD"]
     Camel --> DWH
     BI --> DWH
   end
+    style Legacy fill:#eeeeee,stroke:#888888,stroke-width:2px,stroke-dasharray:8 4
 
-  EHR -->|"PatientRegistered,\nVisitCompleted"| Bus
-  BankAPI -->|"CreditIssued,\nPaymentReceived"| Bus
-  ML -->|"DiagnosisSuggested"| Bus
+  EHR --> Bus
+  BankAPI --> Bus
+  ML --> Bus
+  BankAPI --> Orch
   Bus --> Mesh
-  ACL --> Bus
+  Gateway --> BankAPI
+  Gateway --> EHR
   Camel -.-> ACL
   DWH -.-> ACL
-  Mesh -.->|"batch / CDC"| ACL
+  ACL --> Bus
+  Mesh -.-> ACL
 ```
 
 ## Ключевые изменения vs AS-IS
@@ -96,7 +105,7 @@ flowchart TB
 | AS-IS | TO-BE (3 года) |
 |-------|----------------|
 | DWH — центр всей логики | Доменные OLTP + Data Products; DWH только как мост |
-| Camel — основная шина | Event Bus; Camel — ACL для легаси |
+| Camel — маршрутизация, ETL, оркестрация | Bus, Gateway, Schema, Stream, Saga; Camel **вывод** |
 | Power BI на DWH | Self-service portal + доменные витрины |
 | PHI в аналитике | PHI только в мед. домене; портал — агрегаты без карт |
 | Синхронные интеграции | События + near-real-time потоки |
